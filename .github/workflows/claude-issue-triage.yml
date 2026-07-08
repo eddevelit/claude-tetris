@@ -1,0 +1,73 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: claude-issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Ensure standard labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "bug" --color "d73a4a" --description "Algo no funciona correctamente" --force
+          gh label create "enhancement" --color "a2eeef" --description "Nueva funcionalidad o mejora" --force
+          gh label create "question" --color "d876e3" --description "Pregunta o solicitud de información" --force
+          gh label create "documentation" --color "0075ca" --description "Mejoras o cambios en la documentación" --force
+          gh label create "gameplay" --color "bfdadc" --description "Mecánicas o reglas del juego" --force
+          gh label create "ui-ux" --color "c5def5" --description "Interfaz visual o experiencia de usuario" --force
+          gh label create "performance" --color "fbca04" --description "Rendimiento / velocidad del juego" --force
+          gh label create "priority: alta" --color "b60205" --description "Debe atenderse pronto" --force
+          gh label create "priority: media" --color "d4c5f9" --description "Prioridad normal" --force
+          gh label create "priority: baja" --color "0e8a1c" --description "Puede esperar" --force
+
+      - name: Run Claude Issue Triage
+        id: claude-triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*)"'
+          prompt: |
+            Analiza el issue #${{ github.event.issue.number }} de este repositorio de Tetris
+            (`gh issue view ${{ github.event.issue.number }}`) y haz lo siguiente:
+
+            1. Consulta los labels disponibles con `gh label list` y asigna al issue,
+               usando `gh issue edit ${{ github.event.issue.number }} --add-label "..."`,
+               SOLO labels que ya existan en ese listado. Usa como referencia el contexto
+               del proyecto (CLAUDE.md): el juego es un Tetris en JavaScript vanilla con
+               HTML5 Canvas, y toda la lógica vive en `game.js` (tablero, piezas, colisiones,
+               rotación con wall kicks, limpieza de líneas, puntuación, nivel/velocidad,
+               pieza fantasma). Asigna una label de categoría (bug, enhancement, question,
+               documentation, gameplay, ui-ux o performance, la que mejor aplique) y una
+               label de prioridad (priority: alta, priority: media o priority: baja) según
+               la severidad/impacto descrito. No inventes labels que no estén en el listado.
+
+            2. Publica un comentario en el issue (`gh issue comment ${{ github.event.issue.number }} --body "..."`)
+               en **español**, con un diagnóstico general estructurado que incluya:
+               - **Resumen del problema**: qué está reportando o pidiendo el usuario.
+               - **Área del código probablemente afectada**: qué función(es) o sección(es)
+                 de `game.js` (o `index.html`/`style.css` si aplica) están probablemente
+                 relacionadas.
+               - **Causa raíz probable**: tu hipótesis de por qué ocurre, si es un bug, o
+                 qué enfoque de diseño implica, si es una mejora.
+               - **Pasos sugeridos para la solución**: una lista breve y accionable que
+                 sirva de punto de partida para implementar la solución después.
+
+            Sé conciso y técnico. Si el issue fue editado y ya tiene un comentario de
+            diagnóstico previo de Claude, puedes publicar un nuevo comentario actualizado
+            en lugar de intentar editar el anterior.
